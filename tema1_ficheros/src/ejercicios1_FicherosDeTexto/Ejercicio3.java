@@ -1,14 +1,15 @@
 package ejercicios1_FicherosDeTexto;
 
-import java.io.BufferedReader;
-import java.io.BufferedWriter;
-import java.io.FileNotFoundException;
-import java.io.IOException;
+import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 public class Ejercicio3 {
@@ -38,9 +39,10 @@ NotDirectoryException e;
     }
 
     public void show() {
-        Path combined = Paths.get("C:\\Users\\lukia\\Desktop\\combined.txt");
+        Path desktopPath = Paths.get(System.getProperty("user.home") + File.separator+"Desktop");
+        Path combined = desktopPath.resolve("combined.txt");
         joinJavaFiles(combined);
-        filterJavaFile(combined, Paths.get("C:\\Users\\lukia\\Desktop"));
+        filterJavaFile(combined, desktopPath);
     }
 
     public List<Path> getJavaFiles() {
@@ -83,7 +85,12 @@ NotDirectoryException e;
     }
 
     public void filterJavaFile(Path source, Path destination) {
-        String line;
+
+        Pattern tryPattern=Pattern.compile("\\btry\\s*\\(([^)]+)\\)");
+        Pattern catchPattern=Pattern.compile("\\bcatch\\s*\\(([^)]+)\\)");
+
+        Set<String> catchExceptions= new LinkedHashSet<>();
+
         try (BufferedReader reader = Files.newBufferedReader(source);
              BufferedWriter writerTry = Files.newBufferedWriter(
                      destination.resolve("try.txt"),
@@ -96,13 +103,47 @@ NotDirectoryException e;
                      StandardOpenOption.CREATE
              );
         ) {
+            String line;
             while ((line = reader.readLine()) != null) {
-                if (line.matches("(?s)\\btry\\s*\\(([^)]+)\\)")) {
-                    writerTry.write(line);
+                Matcher tryMathcer=tryPattern.matcher(line);
+
+                while (tryMathcer.find()){
+                    String declarations =tryMathcer.group(1).trim();
+                    // Pueden existir varios recursos separados por ';'
+                    for (String resource : declarations.split(";")) {
+                        String clean = resource.trim();
+                        if (clean.isEmpty()) continue;
+
+                        // Quedarse con "Tipo variable" antes del '='
+                        String typeAndName = clean.split("=")[0].trim();
+                        writerTry.write(typeAndName + ";");
+                        writerTry.newLine();
+                    }
                 }
-                if (line.matches("(?s)\\bcatch\\s*\\(([^)]+)\\)")) {
-                    writerCatch.write(line);
+
+                Matcher catchMatcher=catchPattern.matcher(line);
+
+                while (catchMatcher.find()){
+                    String catchContent = catchMatcher.group(1).trim();
+                    // Extraer el nombre de la variable (último token)
+                    int lastSpace = catchContent.lastIndexOf(' ');
+                    String varName = (lastSpace != -1) ? catchContent.substring(lastSpace + 1).trim() : "e";
+                    String typesPart = (lastSpace != -1) ? catchContent.substring(0, lastSpace).trim() : catchContent;
+
+                    // Manejar multicatch (ej. "IOException | SQLException")
+                    for (String exType : typesPart.split("\\|")) {
+                        String cleanType = exType.trim();
+                        if (!cleanType.isEmpty()) {
+                            catchExceptions.add(cleanType + " " + varName + ";");
+                        }
+                    }
                 }
+
+
+            }
+            for (String exDecl : catchExceptions) {
+                writerCatch.write(exDecl);
+                writerCatch.newLine();
             }
         } catch (FileNotFoundException e) {
             System.err.printf("El fichero no existe: %s", e.getMessage());
